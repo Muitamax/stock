@@ -1,0 +1,2 @@
+# stock
+Super market registry
