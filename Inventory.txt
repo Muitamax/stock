@@ -1,0 +1,225 @@
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'inventory.php';
+
+$auth = new Auth($pdo);
+$auth->requireAuth();
+
+$inventory = new Inventory($pdo);
+
+// Handle form submissions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['add_product'])) {
+        $data = [
+            'name' => $_POST['name'],
+            'description' => $_POST['description'],
+            'barcode' => $_POST['barcode'],
+            'price' => $_POST['price'],
+            'cost_price' => $_POST['cost_price'],
+            'quantity' => $_POST['quantity'],
+            'category_id' => $_POST['category_id'],
+            'supplier_id' => $_POST['supplier_id'],
+            'expiration_date' => $_POST['expiration_date'],
+            'low_stock_threshold' => $_POST['low_stock_threshold']
+        ];
+        
+        if ($inventory->addProduct($data)) {
+            $_SESSION['success'] = "Product added successfully!";
+            header("Location: inventory.php");
+            exit();
+        } else {
+            $error = "Failed to add product";
+        }
+    } elseif (isset($_POST['update_stock'])) {
+        $product_id = $_POST['product_id'];
+        $quantity = $_POST['quantity_change'];
+        
+        if ($inventory->updateStock($product_id, $quantity)) {
+            $_SESSION['success'] = "Stock updated successfully!";
+            header("Location: inventory.php");
+            exit();
+        } else {
+            $error = "Failed to update stock";
+        }
+    }
+}
+
+// Get inventory data with filters
+$filter = [];
+if (!empty($_GET['category_id'])) $filter['category_id'] = $_GET['category_id'];
+if (!empty($_GET['supplier_id'])) $filter['supplier_id'] = $_GET['supplier_id'];
+if (!empty($_GET['low_stock'])) $filter['low_stock'] = true;
+if (!empty($_GET['expiring_soon'])) $filter['expiring_soon'] = true;
+
+$products = $inventory->getProducts($filter);
+$categories = $inventory->getCategories();
+$suppliers = $inventory->getSuppliers();
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supermarket System - Inventory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+    
+    <div class="container mt-4">
+        <h2>Inventory Management</h2>
+        
+        <?php if (isset($_SESSION['success'])): ?>
+            <div class="alert alert-success"><?= $_SESSION['success'] ?></div>
+            <?php unset($_SESSION['success']); ?>
+        <?php endif; ?>
+        
+        <?php if (isset($error)): ?>
+            <div class="alert alert-danger"><?= $error ?></div>
+        <?php endif; ?>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Category</label>
+                        <select name="category_id" class="form-select">
+                            <option value="">All Categories</option>
+                            <?php foreach ($categories as $category): ?>
+                                <option value="<?= $category['category_id'] ?>" <?= isset($_GET['category_id']) && $_GET['category_id'] == $category['category_id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($category['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Supplier</label>
+                        <select name="supplier_id" class="form-select">
+                            <option value="">All Suppliers</option>
+                            <?php foreach ($suppliers as $supplier): ?>
+                                <option value="<?= $supplier['supplier_id'] ?>" <?= isset($_GET['supplier_id']) && $_GET['supplier_id'] == $supplier['supplier_id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($supplier['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check mt-4 pt-2">
+                            <input class="form-check-input" type="checkbox" name="low_stock" id="low_stock" <?= isset($_GET['low_stock']) ? 'checked' : '' ?>>
+                            <label class="form-check-label" for="low_stock">
+                                Low Stock Only
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check mt-4 pt-2">
+                            <input class="form-check-input" type="checkbox" name="expiring_soon" id="expiring_soon" <?= isset($_GET['expiring_soon']) ? 'checked' : '' ?>>
+                            <label class="form-check-label" for="expiring_soon">
+                                Expiring Soon
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Apply Filters</button>
+                        <a href="inventory.php" class="btn btn-secondary">Reset</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Products</h5>
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addProductModal">
+                    <i class="bi bi-plus"></i> Add Product
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Price</th>
+                                <th>Cost</th>
+                                <th>Qty</th>
+                                <th>Category</th>
+                                <th>Supplier</th>
+                                <th>Expires</th>
+                                <th>Barcode</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($products as $product): ?>
+                            <tr class="<?= $product['quantity'] <= $product['low_stock_threshold'] ? 'table-warning' : '' ?>">
+                                <td><?= $product['product_id'] ?></td>
+                                <td><?= htmlspecialchars($product['name']) ?></td>
+                                <td>$<?= number_format($product['price'], 2) ?></td>
+                                <td>$<?= number_format($product['cost_price'], 2) ?></td>
+                                <td><?= $product['quantity'] ?></td>
+                                <td><?= htmlspecialchars($product['category_name'] ?? 'N/A') ?></td>
+                                <td><?= htmlspecialchars($product['supplier_name'] ?? 'N/A') ?></td>
+                                <td><?= $product['expiration_date'] ?? 'N/A' ?></td>
+                                <td><?= $product['barcode'] ?></td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" 
+                                            data-bs-target="#updateStockModal" 
+                                            data-product-id="<?= $product['product_id'] ?>"
+                                            data-product-name="<?= htmlspecialchars($product['name']) ?>">
+                                        <i class="bi bi-box-arrow-in-down"></i> Stock
+                                    </button>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Add Product Modal -->
+    <div class="modal fade" id="addProductModal" tabindex="-1" aria-labelledby="addProductModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addProductModalLabel">Add New Product</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST">
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" name="name" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" name="description">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Barcode</label>
+                                <input type="text" class="form-control" name="barcode">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Selling Price</label>
+                                <input type="number" class="form-control" name="price" step="0.01" min="0" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Cost Price</label>
+                                <input type="number" class="form-control" name="cost_price" step="0.01" min="0" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Quantity</label>
+                                <input type="number" class="form-control" name="quantity" min="0" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Low Stock Threshold</label>
+                                <input type="number" class="
